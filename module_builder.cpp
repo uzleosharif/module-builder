@@ -18,11 +18,10 @@ namespace rng = std::ranges;
 
 namespace {
 
-// TODO(): dependencies could be marked here, saving the client to do this
-// manually in their build.json files
 struct ModuleInfo {
   std::string_view bmi_path;
   std::string_view lib_name;
+  std::vector<std::string_view> deps;
 };
 
 } // namespace
@@ -35,24 +34,39 @@ auto main() -> int {
       "/stuff/c++-packages/clang++-with-libc++/lib/uzleo/"};
 
   // package registry
-  std::unordered_map<std::string_view, ModuleInfo> const module_files{
+  std::unordered_map<std::string_view, ModuleInfo> const module_info_map{
       {"uzleo.json",
        {.bmi_path =
             "/stuff/c++-packages/clang++-with-libc++/bmi/uzleo/json.pcm",
-        .lib_name = "json"}},
+        .lib_name = "json",
+        .deps = {"fmt", "std"}}},
       {"fmt",
        {.bmi_path = "/stuff/c++-packages/clang++-with-libc++/bmi/fmt.pcm",
-        .lib_name = "fmt"}},
+        .lib_name = "fmt",
+        .deps = {}}},
       {"std",
        {.bmi_path = "/stuff/c++-packages/clang++-with-libc++/bmi/std.pcm",
-        .lib_name = ""}},
+        .lib_name = "",
+        .deps = {}}},
       {"std.compat",
        {.bmi_path =
             "/stuff/c++-packages/clang++-with-libc++/bmi/std.compat.pcm",
-        .lib_name = ""}}};
+        .lib_name = "",
+        .deps = {}}}
+
+  };
 
   auto const build_json{uzleo::json::Parse("build.json")};
   auto const& outdir_json{build_json.GetValue("outdir")};
+  std::unordered_set<std::string_view> modules_to_import{};
+  for (auto const& j : build_json.GetValue("imported_modules").GetArray()) {
+    modules_to_import.emplace(j.GetStringView());
+    for (auto const dep : module_info_map.at(j.GetStringView()).deps) {
+      modules_to_import.emplace(dep);
+    }
+    // TODO(): the newly added deps in previous step need to be scanned to their
+    // deps too and so on ...
+  }
 
   auto const make_needed_dirs{[&build_json, &outdir_json] {
     std::string dirs{""};
@@ -87,7 +101,8 @@ auto main() -> int {
     return cmd;
   }};
 
-  auto const install_executable{[&build_json, &outdir_json, &module_files,
+  auto const install_executable{[&build_json, &outdir_json, &module_info_map,
+                                 &modules_to_import,
                                  &lib_search_paths]() -> std::string {
     std::string cmd{};
     cmd.reserve(100);
@@ -100,11 +115,10 @@ auto main() -> int {
     }
 
     // add library info (linkage) to command
-    for (auto const& j : build_json.GetValue("imported_modules").GetArray()) {
-      auto const lib_name{module_files.at(j.GetStringView()).lib_name};
+    for (auto const m : modules_to_import) {
+      auto const lib_name{module_info_map.at(m).lib_name};
       if (not lib_name.empty()) {
-        cmd +=
-            fmt::format(" -l{}", module_files.at(j.GetStringView()).lib_name);
+        cmd += fmt::format(" -l{}", lib_name);
       }
     }
     for (auto const p : lib_search_paths) {
@@ -121,11 +135,12 @@ auto main() -> int {
   }};
 
   auto const install_archive{[&build_json, &outdir_json]() -> std::string {
-    /// this code block compiles individual source files (*.cppm) ony-by-one
-    /// into *.o and *.pcm
+    /// this code block compiles individual source files (*.cppm)
+    /// ony-by-one into *.o and *.pcm
     /// *.pcm are installed to outdir/bmi/{namespace}
-    /// finally all *.o are assembled together to make a static library lib*.a
-    /// the lib is installed to outdir/lib/{namespace}
+    /// finally all *.o are assembled together to make a static
+    /// library lib*.a the lib is installed to
+    /// outdir/lib/{namespace}
     std::string cmd{};
     cmd.reserve(100);
 
@@ -172,10 +187,9 @@ auto main() -> int {
   shell_commands += make_needed_dirs();
 
   shell_commands += compiler;
-  // add module-files to command
-  for (auto const& j : build_json.GetValue("imported_modules").GetArray()) {
-    shell_commands += fmt::format(" -fmodule-file={}={}", j.GetStringView(),
-                                  module_files.at(j.GetStringView()).bmi_path);
+  for (auto const m : modules_to_import) {
+    shell_commands +=
+        fmt::format(" -fmodule-file={}={}", m, module_info_map.at(m).bmi_path);
   }
 
   if (build_json.Contains("e")) {
