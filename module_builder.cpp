@@ -59,7 +59,7 @@ auto main() -> int {
   auto const build_json{uzleo::json::Parse("build.json")};
   auto const& outdir_json{build_json.GetValue("outdir")};
   std::unordered_set<std::string_view> modules_to_import{};
-  for (auto const& j : build_json.GetValue("imported_modules").GetArray()) {
+  for (auto const& j : build_json.GetValue("imports").GetArray()) {
     modules_to_import.emplace(j.GetStringView());
     for (auto const dep : module_info_map.at(j.GetStringView()).deps) {
       modules_to_import.emplace(dep);
