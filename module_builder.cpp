@@ -201,4 +201,12 @@ auto main() -> int {
   // finally write to output medium
   std::ofstream file_stream{"build.sh"};
   file_stream << shell_commands;
+  file_stream.close();
+  std::filesystem::permissions("build.sh",
+                               std::filesystem::perms::owner_exec |
+                                   std::filesystem::perms::owner_read |
+                                   std::filesystem::perms::owner_write |
+                                   std::filesystem::perms::group_exec |
+                                   std::filesystem::perms::others_exec,
+                               std::filesystem::perm_options::add);
 }
