@@ -30,29 +30,19 @@ auto main() -> int {
   auto constexpr compiler{"clang++ -std=c++26 -stdlib=libc++ -O3"};
 
   std::array<std::string_view, 2> constexpr lib_search_paths{
-      "/stuff/c++-packages/clang++-with-libc++/lib/",
-      "/stuff/c++-packages/clang++-with-libc++/lib/uzleo/"};
+      "/modules/lib/", "/modules/lib/uzleo/"};
 
   // package registry
   std::unordered_map<std::string_view, ModuleInfo> const module_info_map{
       {"uzleo.json",
-       {.bmi_path =
-            "/stuff/c++-packages/clang++-with-libc++/bmi/uzleo/json.pcm",
+       {.bmi_path = "/modules/bmi/uzleo/json.pcm",
         .lib_name = "json",
         .deps = {"fmt", "std"}}},
       {"fmt",
-       {.bmi_path = "/stuff/c++-packages/clang++-with-libc++/bmi/fmt.pcm",
-        .lib_name = "fmt",
-        .deps = {}}},
-      {"std",
-       {.bmi_path = "/stuff/c++-packages/clang++-with-libc++/bmi/std.pcm",
-        .lib_name = "",
-        .deps = {}}},
+       {.bmi_path = "/modules/bmi/fmt.pcm", .lib_name = "fmt", .deps = {}}},
+      {"std", {.bmi_path = "/modules/bmi/std.pcm", .lib_name = "", .deps = {}}},
       {"std.compat",
-       {.bmi_path =
-            "/stuff/c++-packages/clang++-with-libc++/bmi/std.compat.pcm",
-        .lib_name = "",
-        .deps = {}}}
+       {.bmi_path = "/modules/bmi/std.compat.pcm", .lib_name = "", .deps = {}}}
 
   };
 

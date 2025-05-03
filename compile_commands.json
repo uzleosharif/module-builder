@@ -1,0 +1,7 @@
+[
+  {
+    "directory": "/work/uzleo/module-builder/",
+    "command": "clang++ -std=c++26 -stdlib=libc++ -O3 -fmodule-file=uzleo.json=/modules/bmi/uzleo/json.pcm -fmodule-file=fmt=/modules/bmi/fmt.pcm -fmodule-file=std=/modules/bmi/std.pcm -o build/modi module_builder.cpp -ljson -lfmt -L /modules/lib/ -L /modules/lib/uzleo/",
+    "file": "module_builder.cpp"
+  }
+]
