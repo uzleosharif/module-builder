@@ -26,7 +26,9 @@ native executable.
 
   "e": "binary_name"    // use this to build executable `binary_name`
   // or
-  "a": "some_lib_name"        // use this to build static lib `libsome_lib_name.a`
+  "a": "some_lib_name"  // use this to build static lib `libsome_lib_name.a`
+  // or 
+  "so": "some_lib_name" // use this to build shared-object lib `libsome_lib_name.so`
 }
 ```
 
@@ -36,3 +38,8 @@ The tool relies on a module registry on file-system at `/modules/`.
 To get such a dev environment for free, it is recommended to use 
 `cpp-modules-base` docker as provided in `dockers/cpp-modules-base/` folder.
 
+
+## possible future work
+
+I am thinking but not yet convinced if i need to provide `install` support. As I always think, 
+simply copying/moving the artifacts around should suffice most of local dev use-cases.
