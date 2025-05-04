@@ -46,6 +46,11 @@ rule link
   rspfile_content = $in
   description = Linking $out)"};
 
+  constexpr std::string_view rule_sharedlib{R"(
+rule sharedlib
+  command = $cxx -shared -o $out $in $ld_flags
+  description = Linking shared library $out)"};
+
   // package registry
   std::unordered_map<std::string_view, ModuleInfo> const module_info_map{
       {"uzleo.json",
@@ -117,7 +122,13 @@ rule link
 
   std::ofstream file_stream{fmt::format("{}/build.ninja", builddir)};
   file_stream << "cxx = " << compiler << '\n';
-  file_stream << "cxx_flags = " << cxx_flags << '\n';
+
+  file_stream << "cxx_flags = " << cxx_flags << ' ';
+  if (build_json.Contains("so")) {
+    file_stream << "-fPIC";
+  }
+  file_stream << '\n';
+
   file_stream << "module_flags = " << module_flags << '\n';
   file_stream << "ld_flags = " << ld_flags;
   file_stream << rule_cxx_module;
@@ -127,6 +138,12 @@ rule link
     file_stream << rule_archive << '\n';
   } else if (build_json.Contains("e")) {
     file_stream << rule_link << '\n';
+  } else if (build_json.Contains("so")) {
+    file_stream << rule_sharedlib << '\n';
+  } else {
+    std::filesystem::remove_all(builddir);
+    throw std::invalid_argument{
+        "Do not know what to generate. Is build.json ok?"};
   }
 
   auto const& source_array{build_json.GetValue("src").GetArray()};
@@ -145,6 +162,10 @@ rule link
   } else if (build_json.Contains("e")) {
     file_stream << "build " << builddir
                 << build_json.GetValue("e").GetStringView() << ": link ";
+  } else if (build_json.Contains("so")) {
+    file_stream << "build " << builddir << "lib"
+                << build_json.GetValue("so").GetStringView()
+                << ".so: sharedlib ";
   }
 
   for (auto const& j : source_array) {
