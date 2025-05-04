@@ -1,15 +1,5 @@
 
 
-/// - The purpose of this program is to allow building (and installing) cpp
-/// modules conveniently.
-/// - It tries to replace cmake usage. Uses json as source file for
-/// build configuration.
-/// - It can generate BMI, static/shared-library and native
-/// executable.
-/// - It can generate compile_commands.json.
-
-// TODO(): generate compile_commands.json
-
 import uzleo.json;
 import std;
 import fmt;
@@ -27,10 +17,34 @@ struct ModuleInfo {
 } // namespace
 
 auto main() -> int {
-  auto constexpr compiler{"clang++ -std=c++26 -stdlib=libc++ -O3"};
 
   std::array<std::string_view, 2> constexpr lib_search_paths{
       "/modules/lib/", "/modules/lib/uzleo/"};
+
+  auto constexpr compiler{"clang++"};
+  auto constexpr cxx_flags{"-std=c++26 -stdlib=libc++ -O3"};
+
+  constexpr std::string_view rule_cxx_module{R"(
+rule cxx_module
+  command = $cxx $cxx_flags $module_flags -fmodule-output -c $in -o $out
+  description = Compiling module $in)"};
+
+  constexpr std::string_view rule_cxx_regular{R"(
+rule cxx_regular
+  command = $cxx $cxx_flags $module_flags -c $in -o $out
+  description = Compiling source $in)"};
+
+  constexpr std::string_view rule_archive{R"(
+rule archive
+  command = ar rcs $out $in
+  description = Archiving $out)"};
+
+  constexpr std::string_view rule_link{R"(
+rule link
+  command = $cxx $cxx_flags $module_flags @link.rsp $ld_flags -o $out
+  rspfile = link.rsp
+  rspfile_content = $in
+  description = Linking $out)"};
 
   // package registry
   std::unordered_map<std::string_view, ModuleInfo> const module_info_map{
@@ -42,14 +56,20 @@ auto main() -> int {
        {.bmi_path = "/modules/bmi/fmt.pcm", .lib_name = "fmt", .deps = {}}},
       {"std", {.bmi_path = "/modules/bmi/std.pcm", .lib_name = "", .deps = {}}},
       {"std.compat",
-       {.bmi_path = "/modules/bmi/std.compat.pcm", .lib_name = "", .deps = {}}}
+       {.bmi_path = "/modules/bmi/std.compat.pcm", .lib_name = "", .deps = {}}},
 
   };
 
   auto const build_json{uzleo::json::Parse("build.json")};
-  auto const& outdir_json{build_json.GetValue("outdir")};
+
+  std::string builddir =
+      build_json.Contains("b")
+          ? build_json.GetValue("b").GetStringView() | rng::to<std::string>()
+          : "build/";
+  std::filesystem::create_directory(builddir);
+
   std::unordered_set<std::string_view> modules_to_import{};
-  for (auto const& j : build_json.GetValue("imports").GetArray()) {
+  for (auto const& j : build_json.GetValue("imp").GetArray()) {
     modules_to_import.emplace(j.GetStringView());
     for (auto const dep : module_info_map.at(j.GetStringView()).deps) {
       modules_to_import.emplace(dep);
@@ -58,145 +78,65 @@ auto main() -> int {
     // deps too and so on ...
   }
 
-  auto const make_needed_dirs{[&build_json, &outdir_json] {
-    std::string dirs{""};
-    dirs.reserve(100);
+  auto module_flags =
+      modules_to_import |
+      std::views::transform([&module_info_map](auto const m) -> std::string {
+        return fmt::format("-fmodule-file={}={} ", m,
+                           module_info_map.at(m).bmi_path);
+      }) |
+      std::views::join | rng::to<std::string>();
 
-    dirs += "build/ ";
-    for (auto const& j : build_json.GetValue("src").GetArray()) {
-      if (j.GetStringView().contains('/')) {
-        dirs += fmt::format(
-            "build/{} ",
-            j.GetStringView().substr(0, j.GetStringView().find_last_of('/')));
-      }
-    }
+  auto ld_flags =
+      modules_to_import | std::views::filter([&module_info_map](auto const m) {
+        return not module_info_map.at(m).lib_name.empty();
+      }) |
+      std::views::transform([&module_info_map](auto const m) -> std::string {
+        return fmt::format("-l{} ", module_info_map.at(m).lib_name);
+      }) |
+      std::views::join | rng::to<std::string>();
+  rng::copy(
+      lib_search_paths | std::views::transform([](auto const l) -> std::string {
+        return fmt::format("-L{} ", l);
+      }) | std::views::join,
+      std::back_inserter(ld_flags));
 
-    if (build_json.Contains("e")) {
-      dirs +=
-          fmt::format("{}/bin/ ", outdir_json.GetValue("path").GetStringView());
-    } else {
-      if (outdir_json.Contains("namespace")) {
-        dirs += fmt::format("{0}/lib/{1} {0}/bmi/{1} ",
-                            outdir_json.GetValue("path").GetStringView(),
-                            outdir_json.GetValue("namespace").GetStringView());
-      } else {
-        dirs += fmt::format("{0}/lib {0}/bmi ",
-                            outdir_json.GetValue("path").GetStringView());
-      }
-    }
+  std::ofstream file_stream{fmt::format("{}/build.ninja", builddir)};
+  file_stream << "cxx = " << compiler << '\n';
+  file_stream << "cxx_flags = " << cxx_flags << '\n';
+  file_stream << "module_flags = " << module_flags << '\n';
+  file_stream << "ld_flags = " << ld_flags;
+  file_stream << rule_cxx_module;
+  file_stream << rule_cxx_regular;
 
-    std::string cmd;
-    cmd.reserve(rng::size(dirs) + 10);
-    cmd = "mkdir -p " + dirs + '\n';
-    return cmd;
-  }};
-
-  auto const install_executable{[&build_json, &outdir_json, &module_info_map,
-                                 &modules_to_import,
-                                 &lib_search_paths]() -> std::string {
-    std::string cmd{};
-    cmd.reserve(100);
-    // add output format info to command
-    cmd +=
-        fmt::format(" -o build/{}", build_json.GetValue("e").GetStringView());
-    // add source-files to command
-    for (auto const& j : build_json.GetValue("src").GetArray()) {
-      cmd += fmt::format(" {}", j.GetStringView());
-    }
-
-    // add library info (linkage) to command
-    for (auto const m : modules_to_import) {
-      auto const lib_name{module_info_map.at(m).lib_name};
-      if (not lib_name.empty()) {
-        cmd += fmt::format(" -l{}", lib_name);
-      }
-    }
-    for (auto const p : lib_search_paths) {
-      cmd += fmt::format(" -L {}", p);
-    }
-
-    // install the generated executable/binary
-    cmd += '\n';
-    cmd += fmt::format("cp build/{} {}/bin/",
-                       build_json.GetValue("e").GetStringView(),
-                       outdir_json.GetValue("path").GetStringView());
-
-    return cmd;
-  }};
-
-  auto const install_archive{[&build_json, &outdir_json]() -> std::string {
-    /// this code block compiles individual source files (*.cppm)
-    /// ony-by-one into *.o and *.pcm
-    /// *.pcm are installed to outdir/bmi/{namespace}
-    /// finally all *.o are assembled together to make a static
-    /// library lib*.a the lib is installed to
-    /// outdir/lib/{namespace}
-    std::string cmd{};
-    cmd.reserve(100);
-
-    auto const& outdir_json{build_json.GetValue("outdir")};
-
-    std::string overall_artifacts{};
-    for (auto const& j : build_json.GetValue("src").GetArray()) {
-      std::string_view output_artifact_sv{rng::begin(j.GetStringView()),
-                                          j.GetStringView().find_last_of('.')};
-      overall_artifacts += fmt::format("build/{}.o ", output_artifact_sv);
-
-      cmd += fmt::format(" -fmodule-output -o build/{}.o -c {}\n",
-                         output_artifact_sv, j.GetStringView());
-
-      // install the generated bmi
-      cmd += fmt::format("cp build/{}.pcm {}/bmi/", output_artifact_sv,
-                         outdir_json.GetValue("path").GetStringView());
-      if (outdir_json.Contains("namespace")) {
-        cmd += outdir_json.GetValue("namespace").GetStringView();
-      }
-      cmd += "/\n";
-    }
-    // create archive
-    cmd += fmt::format("ar r build/lib{}.a {}\n",
-                       build_json.GetValue("a").GetStringView(),
-                       overall_artifacts);
-
-    // install the generated lib
-    cmd += fmt::format("cp build/lib{}.a {}/lib/",
-                       build_json.GetValue("a").GetStringView(),
-                       outdir_json.GetValue("path").GetStringView());
-    if (outdir_json.Contains("namespace")) {
-      cmd +=
-          build_json.GetValue("outdir").GetValue("namespace").GetStringView();
-    }
-    cmd += "/\n";
-
-    return cmd;
-  }};
-
-  // setup initial part of clang compiler command
-  std::string shell_commands{};
-  shell_commands.reserve(512);
-  shell_commands += make_needed_dirs();
-
-  shell_commands += compiler;
-  for (auto const m : modules_to_import) {
-    shell_commands +=
-        fmt::format(" -fmodule-file={}={}", m, module_info_map.at(m).bmi_path);
+  if (build_json.Contains("a")) {
+    file_stream << rule_archive << '\n';
+  } else if (build_json.Contains("e")) {
+    file_stream << rule_link << '\n';
   }
 
-  if (build_json.Contains("e")) {
-    shell_commands += install_executable();
-  } else if (build_json.Contains("a")) {
-    shell_commands += install_archive();
+  auto const& source_array{build_json.GetValue("src").GetArray()};
+  for (auto const& j : source_array) {
+    auto const cxx_rule{j.GetStringView().ends_with("cppm") ? "cxx_module"
+                                                            : "cxx_regular"};
+    file_stream << "build " << builddir
+                << j.GetStringView().substr(0,
+                                            j.GetStringView().find_last_of('.'))
+                << ".o: " << cxx_rule << ' ' << j.GetStringView() << '\n';
   }
 
-  // finally write to output medium
-  std::ofstream file_stream{"build.sh"};
-  file_stream << shell_commands;
-  file_stream.close();
-  std::filesystem::permissions("build.sh",
-                               std::filesystem::perms::owner_exec |
-                                   std::filesystem::perms::owner_read |
-                                   std::filesystem::perms::owner_write |
-                                   std::filesystem::perms::group_exec |
-                                   std::filesystem::perms::others_exec,
-                               std::filesystem::perm_options::add);
+  if (build_json.Contains("a")) {
+    file_stream << "build " << builddir << "lib"
+                << build_json.GetValue("a").GetStringView() << ".a: archive ";
+  } else if (build_json.Contains("e")) {
+    file_stream << "build " << builddir
+                << build_json.GetValue("e").GetStringView() << ": link ";
+  }
+
+  for (auto const& j : source_array) {
+    file_stream << builddir
+                << j.GetStringView().substr(0,
+                                            j.GetStringView().find_last_of('.'))
+                << ".o ";
+  }
+  file_stream << '\n';
 }
