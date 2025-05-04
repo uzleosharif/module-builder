@@ -56,9 +56,9 @@ rule link
        {.bmi_path = "/modules/bmi/fmt.pcm", .lib_name = "fmt", .deps = {}}},
       {"std", {.bmi_path = "/modules/bmi/std.pcm", .lib_name = "", .deps = {}}},
       {"std.compat",
-       {.bmi_path = "/modules/bmi/std.compat.pcm", .lib_name = "", .deps = {}}},
-
-  };
+       {.bmi_path = "/modules/bmi/std.compat.pcm",
+        .lib_name = "",
+        .deps = {}}}};
 
   auto const build_json{uzleo::json::Parse("build.json")};
 
@@ -68,15 +68,30 @@ rule link
           : "build/";
   std::filesystem::create_directory(builddir);
 
-  std::unordered_set<std::string_view> modules_to_import{};
-  for (auto const& j : build_json.GetValue("imp").GetArray()) {
-    modules_to_import.emplace(j.GetStringView());
-    for (auto const dep : module_info_map.at(j.GetStringView()).deps) {
-      modules_to_import.emplace(dep);
-    }
-    // TODO(): the newly added deps in previous step need to be scanned to their
-    // deps too and so on ...
-  }
+  auto const resolve_deps{
+      [&build_json, &module_info_map]() -> std::vector<std::string_view> {
+        // stack based DFS to resolve transitive deps
+        std::stack<std::string_view> to_process{};
+        for (auto const& j : build_json.GetValue("imp").GetArray()) {
+          to_process.push(j.GetStringView());
+        }
+
+        std::unordered_set<std::string_view> modules_to_import{};
+        while (not to_process.empty()) {
+          auto current{to_process.top()};
+          to_process.pop();
+          if (not modules_to_import.contains(current)) {
+            modules_to_import.insert(current);
+            for (auto const m : module_info_map.at(current).deps) {
+              to_process.push(m);
+            }
+          }
+        }
+
+        return modules_to_import | rng::to<std::vector>();
+      }};
+
+  auto modules_to_import{resolve_deps()};
 
   auto module_flags =
       modules_to_import |
