@@ -109,6 +109,7 @@ rule sharedlib
                            module_info_map.at(m).bmi_path);
       }) |
       std::views::join | rng::to<std::string>();
+  module_flags += fmt::format(" -fprebuilt-module-path={}", builddir);
 
   auto ld_flags =
       modules_to_import | std::views::filter([&module_info_map](auto const m) {
@@ -150,14 +151,28 @@ rule sharedlib
         "Do not know what to generate. Is build.json ok?"};
   }
 
-  auto const& source_array{build_json.GetValue("src").GetArray()};
-  for (auto const& j : source_array) {
-    auto const cxx_rule{j.GetStringView().ends_with("cppm") ? "cxx_module"
-                                                            : "cxx_regular"};
+  // doing build rule for each individual source file
+  auto const& sources_map{build_json.GetValue("src").GetMap()};
+  for (auto const& [src_name, src_deps_json] : sources_map) {
+    std::string_view const src_name_sv{src_name};
+    auto const cxx_rule{src_name_sv.ends_with("cppm") ? "cxx_module"
+                                                      : "cxx_regular"};
     file_stream << "build " << builddir
-                << j.GetStringView().substr(0,
-                                            j.GetStringView().find_last_of('.'))
-                << ".o: " << cxx_rule << ' ' << j.GetStringView() << '\n';
+                << src_name_sv.substr(0, src_name_sv.find_last_of('.'))
+                << ".o: " << cxx_rule << ' ' << src_name_sv;
+
+    const auto& deps = src_deps_json.GetArray();
+    if (not deps.empty()) {
+      file_stream << " | ";
+      for (auto const& j : deps) {
+        file_stream << builddir
+                    << j.GetStringView().substr(
+                           0, j.GetStringView().find_last_of('.'))
+                    << ".o ";
+      }
+    }
+
+    file_stream << '\n';
   }
 
   if (build_json.Contains("a")) {
@@ -171,11 +186,11 @@ rule sharedlib
                 << build_json.GetValue("so").GetStringView()
                 << ".so: sharedlib ";
   }
-
-  for (auto const& j : source_array) {
+  // append all compiled object files (*.o) to this build rule
+  for (auto const& src_name : sources_map | std::views::keys) {
+    std::string_view const src_name_sv{src_name};
     file_stream << builddir
-                << j.GetStringView().substr(0,
-                                            j.GetStringView().find_last_of('.'))
+                << src_name_sv.substr(0, src_name_sv.find_last_of('.'))
                 << ".o ";
   }
   file_stream << '\n';
