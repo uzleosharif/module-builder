@@ -26,12 +26,12 @@ auto main() -> int {
 
   constexpr std::string_view rule_cxx_module{R"(
 rule cxx_module
-  command = $cxx $cxx_flags $module_flags -fmodule-output -c $in -o $out
+  command = $cxx $cxx_flags $module_flags -fmodule-output -MJ $out.json -c $in -o $out
   description = Compiling module $in)"};
 
   constexpr std::string_view rule_cxx_regular{R"(
 rule cxx_regular
-  command = $cxx $cxx_flags $module_flags -c $in -o $out
+  command = $cxx $cxx_flags $module_flags -MJ $out.json -c $in -o $out
   description = Compiling source $in)"};
 
   constexpr std::string_view rule_archive{R"(
