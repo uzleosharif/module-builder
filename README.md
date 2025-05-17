@@ -16,20 +16,26 @@ native executable.
 
 ## format for build.json
 
+
+The `build.json` file now allows **explicit per-source dependency specification** for fine-grained control of module builds.
+
 ```
 {
-  "b": "build_dir",      // [optional] use this to set the build folder (by default, it is `build/`)
+  "b": "build_dir",    // [optional] build output folder (default: "build/")
 
-  "src": ["foo.cpp", ...], // list of source file names (relative paths)
+  "src": {
+    "bar.cppm": [],                // module interface, no dependencies
+    "baz.cppm": [],                // another module interface, no dependencies
+    "main.cpp": ["bar.cppm", "baz.cppm"]   // main.cpp depends on bar.cppm and baz.cppm
+  },
 
-  "imp": ["bar", ...], // list of c++ modules that need to be imported 
-
-  "e": "binary_name"    // use this to build executable `binary_name`
+  "e": "binary_name"    // build executable `binary_name`
   // or
-  "a": "some_lib_name"  // use this to build static lib `libsome_lib_name.a`
+  // "a": "some_lib_name"  // build static lib `libsome_lib_name.a`
   // or 
-  "so": "some_lib_name" // use this to build shared-object lib `libsome_lib_name.so`
+  // "so": "some_lib_name" // build shared-object lib `libsome_lib_name.so`
 }
+
 ```
 
 ## module registry
