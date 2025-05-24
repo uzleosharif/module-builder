@@ -73,7 +73,7 @@ rule sharedlib
 
   std::string builddir =
       build_json.Contains("b")
-          ? build_json.GetValue("b").GetStringView() | rng::to<std::string>()
+          ? build_json.GetJson("b").GetStringView() | rng::to<std::string>()
           : "build/";
   std::filesystem::create_directory(builddir);
 
@@ -81,7 +81,7 @@ rule sharedlib
       [&build_json, &module_info_map]() -> std::vector<std::string_view> {
         // stack based DFS to resolve transitive deps
         std::stack<std::string_view> to_process{};
-        for (auto const& j : build_json.GetValue("imp").GetArray()) {
+        for (auto const& j : build_json.GetJson("imp").GetArray()) {
           to_process.push(j.GetStringView());
         }
 
@@ -152,7 +152,7 @@ rule sharedlib
   }
 
   // doing build rule for each individual source file
-  auto const& sources_map{build_json.GetValue("src").GetMap()};
+  auto const& sources_map{build_json.GetJson("src").GetMap()};
   for (auto const& [src_name, src_deps_json] : sources_map) {
     std::string_view const src_name_sv{src_name};
     auto const cxx_rule{src_name_sv.ends_with("cppm") ? "cxx_module"
@@ -177,13 +177,13 @@ rule sharedlib
 
   if (build_json.Contains("a")) {
     file_stream << "build " << builddir << "lib"
-                << build_json.GetValue("a").GetStringView() << ".a: archive ";
+                << build_json.GetJson("a").GetStringView() << ".a: archive ";
   } else if (build_json.Contains("e")) {
     file_stream << "build " << builddir
-                << build_json.GetValue("e").GetStringView() << ": link ";
+                << build_json.GetJson("e").GetStringView() << ": link ";
   } else if (build_json.Contains("so")) {
     file_stream << "build " << builddir << "lib"
-                << build_json.GetValue("so").GetStringView()
+                << build_json.GetJson("so").GetStringView()
                 << ".so: sharedlib ";
   }
   // append all compiled object files (*.o) to this build rule
