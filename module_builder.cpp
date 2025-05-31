@@ -79,10 +79,20 @@ auto ResolveDeps(ModuleInfoMap const& module_info_map,
 }
 
 auto FillLdFlags(std::vector<std::string_view> const& modules_to_import,
-                 ModuleInfoMap const& module_info_map) -> std::string {
-  // TODO(uzleo): ld_flags should also check what is `l` in json
+                 ModuleInfoMap const& module_info_map,
+                 uzleo::json::Json const& build_json) -> std::string {
   std::string ld_flags{};
   ld_flags.reserve(100);
+
+  if (build_json.Contains("l")) {
+    rng::copy(build_json.GetJson("l").GetArray() |
+                  rng::views::transform([](uzleo::json::Json const& lib_json) {
+                    return fmt::format(" -l{} ", lib_json.GetStringView());
+                  }) |
+                  rng::views::join,
+              std::back_inserter(ld_flags));
+  }
+
   rng::copy(modules_to_import |
                 std::views::filter([&module_info_map](auto const m) {
                   return not module_info_map.at(m).lib_name.empty();
@@ -141,7 +151,7 @@ auto WriteNinjaFile(ModuleInfoMap const& module_info_map,
               << FillModuleFlags(modules_to_import, module_info_map, build_dir)
               << '\n';
   file_stream << "ld_flags = "
-              << FillLdFlags(modules_to_import, module_info_map);
+              << FillLdFlags(modules_to_import, module_info_map, build_json);
   file_stream << rule_cxx_module;
   file_stream << rule_cxx_regular;
 

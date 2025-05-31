@@ -29,6 +29,8 @@ The `build.json` file now allows **explicit per-source dependency specification*
     "main.cpp": ["bar.cppm", "baz.cppm"]   // main.cpp depends on bar.cppm and baz.cppm
   },
 
+  "l": ["sodium"],      // [optional] system-libs to link against
+
   "e": "binary_name"    // build executable `binary_name`
   // or
   // "a": "some_lib_name"  // build static lib `libsome_lib_name.a`
