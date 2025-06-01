@@ -233,7 +233,8 @@ auto main() -> int {
         .lib_name = "",
         .deps = {}}}};
 
-  auto const build_json{uzleo::json::Parse("build.json")};
+  auto const build_json{
+      uzleo::json::Parse(std::filesystem::path{"build.json"})};
 
   WriteNinjaFile(module_info_map, build_json);
 }
