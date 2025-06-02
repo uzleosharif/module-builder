@@ -131,6 +131,13 @@ auto FillModuleFlags(std::vector<std::string_view> const& modules_to_import,
   return module_flags;
 }
 
+auto MakeOSubstring(std::string_view src_name_sv) {
+  auto const start{src_name_sv.contains('/') ? src_name_sv.find_last_of('/')
+                                             : 0};
+  auto const count{src_name_sv.find_last_of('.') - start};
+  return src_name_sv.substr(start, count);
+}
+
 auto WriteNinjaFile(ModuleInfoMap const& module_info_map,
                     uzleo::json::Json const& build_json) {
   auto const build_dir{GetBuildDirPath(build_json)};
@@ -173,18 +180,14 @@ auto WriteNinjaFile(ModuleInfoMap const& module_info_map,
     std::string_view const src_name_sv{src_name};
     auto const cxx_rule{src_name_sv.ends_with("cppm") ? "cxx_module"
                                                       : "cxx_regular"};
-    file_stream << "build " << build_dir
-                << src_name_sv.substr(0, src_name_sv.find_last_of('.'))
+    file_stream << "build " << build_dir << MakeOSubstring(src_name_sv)
                 << ".o: " << cxx_rule << ' ' << src_name_sv;
 
     const auto& deps = src_deps_json.GetArray();
     if (not deps.empty()) {
       file_stream << " | ";
       for (auto const& j : deps) {
-        file_stream << build_dir
-                    << j.GetStringView().substr(
-                           0, j.GetStringView().find_last_of('.'))
-                    << ".o ";
+        file_stream << build_dir << MakeOSubstring(j.GetStringView()) << ".o ";
       }
     }
 
@@ -204,10 +207,7 @@ auto WriteNinjaFile(ModuleInfoMap const& module_info_map,
   }
   // append all compiled object files (*.o) to this build rule
   for (auto const& src_name : sources_map | std::views::keys) {
-    std::string_view const src_name_sv{src_name};
-    file_stream << build_dir
-                << src_name_sv.substr(0, src_name_sv.find_last_of('.'))
-                << ".o ";
+    file_stream << build_dir << MakeOSubstring(src_name) << ".o ";
   }
   file_stream << '\n';
 }
