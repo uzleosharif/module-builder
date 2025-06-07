@@ -149,6 +149,9 @@ auto WriteNinjaFile(ModuleInfoMap const& module_info_map,
   file_stream << "cxx = " << compiler << '\n';
 
   file_stream << "cxx_flags = " << cxx_flags << ' ';
+  if (build_json.Contains("e")) {
+    file_stream << "-fsanitize=address,leak ";
+  }
   if (build_json.Contains("so")) {
     file_stream << "-fPIC";
   }
