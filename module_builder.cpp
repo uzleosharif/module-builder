@@ -134,11 +134,34 @@ auto FillModuleFlags(
   return module_flags;
 }
 
-auto MakeOSubstring(std::string_view src_name_sv) {
+auto ExtractModuleName(std::string_view src_path) -> std::string {
+  static std::regex const module_re{
+      R"(^\s*(?:export\s+)?module\s+([a-zA-Z0-9_.:]+))"};
+
+  std::ifstream file{fs::path{src_path}};
+  std::string line{};
+  while (std::getline(file, line)) {
+    std::smatch m{};
+    if (std::regex_search(line, m, module_re)) {
+      return m[1].str();
+    }
+  }
+
+  // fallback: use the filename (wihtout extension) as the module name
+  return fs::path{src_path}.stem().string();
+}
+
+auto MakeOSubstring(std::string_view src_name_sv) -> std::string {
+  if (src_name_sv.ends_with("cppm")) {
+    // For module interface units use the exported module name as the base name
+    // for the output artifacts.
+    return ExtractModuleName(src_name_sv);
+  }
+
   auto const start{src_name_sv.contains('/') ? src_name_sv.find_last_of('/')
                                              : 0};
   auto const count{src_name_sv.find_last_of('.') - start};
-  return src_name_sv.substr(start, count);
+  return std::string{src_name_sv.substr(start, count)};
 }
 
 using SrcDepsMap =
@@ -174,23 +197,6 @@ auto StripComments(std::string const& text) -> std::string {
     }
   }
   return out;
-}
-
-auto ExtractModuleName(std::string_view src_path) -> std::string {
-  static std::regex const module_re{
-      R"(^\s*(?:export\s+)?module\s+([a-zA-Z0-9_.:]+))"};
-
-  std::ifstream file{fs::path{src_path}};
-  std::string line{};
-  while (std::getline(file, line)) {
-    std::smatch m{};
-    if (std::regex_search(line, m, module_re)) {
-      return m[1].str();
-    }
-  }
-
-  // fallback: use the filename (wihtout extension) as the module name
-  return fs::path{src_path}.stem().string();
 }
 
 auto ParseImports(std::string_view src_path,
