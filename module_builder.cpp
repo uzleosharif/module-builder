@@ -4,9 +4,10 @@ import uzleo.json;
 import std;
 import fmt;
 
-namespace rng = std::ranges;
-
 namespace {
+
+namespace rng = std::ranges;
+namespace fs = std::filesystem;
 
 std::string_view constexpr compiler{"clang++"};
 std::string_view constexpr cxx_flags{"-std=c++26 -stdlib=libc++ -O3"};
@@ -56,7 +57,8 @@ auto GetBuildDirPath(uzleo::json::Json const& build_json) {
 }
 
 auto ResolveDeps(ModuleInfoMap const& module_info_map,
-                 uzleo::json::Json const& build_json) {
+                 uzleo::json::Json const& build_json)
+    -> std::unordered_set<std::string_view> {
   // stack based DFS to resolve transitive deps
   std::stack<std::string_view> to_process{};
   for (auto const& j : build_json.GetJson("imp").GetArray()) {
@@ -75,10 +77,10 @@ auto ResolveDeps(ModuleInfoMap const& module_info_map,
     }
   }
 
-  return modules_to_import | rng::to<std::vector>();
+  return modules_to_import;
 }
 
-auto FillLdFlags(std::vector<std::string_view> const& modules_to_import,
+auto FillLdFlags(std::unordered_set<std::string_view> const& modules_to_import,
                  ModuleInfoMap const& module_info_map,
                  uzleo::json::Json const& build_json) -> std::string {
   std::string ld_flags{};
@@ -112,9 +114,10 @@ auto FillLdFlags(std::vector<std::string_view> const& modules_to_import,
   return ld_flags;
 }
 
-auto FillModuleFlags(std::vector<std::string_view> const& modules_to_import,
-                     ModuleInfoMap const& module_info_map,
-                     std::string_view build_dir) -> std::string {
+auto FillModuleFlags(
+    std::unordered_set<std::string_view> const& modules_to_import,
+    ModuleInfoMap const& module_info_map, std::string_view build_dir)
+    -> std::string {
   std::string module_flags{};
 
   module_flags.reserve(100);
@@ -138,12 +141,129 @@ auto MakeOSubstring(std::string_view src_name_sv) {
   return src_name_sv.substr(start, count);
 }
 
-auto WriteNinjaFile(ModuleInfoMap const& module_info_map,
-                    uzleo::json::Json const& build_json) {
-  auto const build_dir{GetBuildDirPath(build_json)};
-  std::filesystem::create_directory(build_dir);
+using SrcDepsMap =
+    std::unordered_map<std::string_view, std::vector<std::string>>;
 
-  auto const modules_to_import{ResolveDeps(module_info_map, build_json)};
+/// Remove all '//' and '/*…*/' comments from `text`.
+auto StripComments(std::string const& text) -> std::string {
+  std::string out;
+  out.reserve(text.size());
+  bool in_block = false;
+
+  for (std::size_t i = 0; i < text.size(); ++i) {
+    if (!in_block && i + 1 < text.size() && text[i] == '/' &&
+        text[i + 1] == '*') {
+      in_block = true;
+      ++i; // skip '*'
+    } else if (in_block && i + 1 < text.size() && text[i] == '*' &&
+               text[i + 1] == '/') {
+      in_block = false;
+      ++i; // skip '/'
+    } else if (!in_block) {
+      // line‐comment
+      if (i + 1 < text.size() && text[i] == '/' && text[i + 1] == '/') {
+        // skip until end of line
+        i += 2;
+        while (i < text.size() && text[i] != '\n')
+          ++i;
+        if (i < text.size())
+          out += '\n';
+      } else {
+        out += text[i];
+      }
+    }
+  }
+  return out;
+}
+
+auto ExtractModuleName(std::string_view src_path) -> std::string {
+  static std::regex const module_re{
+      R"(^\s*(?:export\s+)?module\s+([a-zA-Z0-9_.:]+))"};
+
+  std::ifstream file{fs::path{src_path}};
+  std::string line{};
+  while (std::getline(file, line)) {
+    std::smatch m{};
+    if (std::regex_search(line, m, module_re)) {
+      return m[1].str();
+    }
+  }
+
+  // fallback: use the filename (wihtout extension) as the module name
+  return fs::path{src_path}.stem().string();
+}
+
+auto ParseImports(std::string_view src_path,
+                  std::unordered_map<std::string, std::string_view> const&
+                      module_to_source_path_map) -> std::vector<std::string> {
+  static std::regex const import_re{R"(\bimport\s+([a-zA-Z0-9_.:]+))"};
+
+  static std::unordered_map<std::string_view, std::vector<std::string>>
+      source_path_to_deps_cache{};
+  if (source_path_to_deps_cache.contains(src_path)) {
+    return source_path_to_deps_cache[src_path];
+  }
+
+  std::ifstream file{fs::path{src_path}, std::ios::binary bitor std::ios::ate};
+  std::string file_content{};
+  file_content.resize(file.tellg());
+
+  file.seekg(0);
+  file.read(file_content.data(), rng::size(file_content));
+
+  auto cleaned_file_contents{StripComments(file_content)};
+  auto deps =
+      rng::subrange{std::regex_iterator{rng::cbegin(cleaned_file_contents),
+                                        rng::cend(cleaned_file_contents),
+                                        import_re},
+                    std::sregex_iterator{}} |
+      rng::views::transform(
+          [](std::smatch const& m) -> std::string { return m[1].str(); }) |
+      rng::views::filter(
+          [&module_to_source_path_map](std::string const& mod_name) -> bool {
+            return module_to_source_path_map.contains(mod_name);
+          }) |
+      rng::views::transform(
+          [&module_to_source_path_map](std::string const& mod_name) {
+            return module_to_source_path_map.at(mod_name);
+          }) |
+      rng::to<std::vector<std::string>>();
+
+  source_path_to_deps_cache.emplace(src_path, std::move(deps));
+  return source_path_to_deps_cache[src_path];
+}
+
+auto DetermineSrcDeps(uzleo::json::Json const& build_json) -> SrcDepsMap {
+  // TODO(uzleo): parallel scanning of source-files e.g. with a thread pool
+  // check out senders feature to describe cooperative tasks
+
+  SrcDepsMap src_deps{};
+  auto const& sources_arr{build_json.GetJson("src").GetArray()};
+
+  // first pass: build a map from module-name -> source-paths
+  std::unordered_map<std::string, std::string_view> module_to_source_path_map{};
+  for (auto const& j : sources_arr | rng::views::filter([](auto const& j) {
+                         return j.GetStringView().ends_with("cppm");
+                       })) {
+    auto const src_name{j.GetStringView()};
+    module_to_source_path_map[ExtractModuleName(src_name)] = src_name;
+  }
+
+  // second pass: for every source (cpp, cppm), parse its imports
+  for (auto const& j : sources_arr) {
+    auto const src_name{j.GetStringView()};
+    src_deps[src_name] = ParseImports(src_name, module_to_source_path_map);
+  }
+
+  return src_deps;
+}
+
+auto WriteNinjaFile(
+    ModuleInfoMap const& module_info_map, uzleo::json::Json const& build_json,
+    std::unordered_set<std::string_view> const& modules_to_import,
+    SrcDepsMap const& src_deps) {
+  auto const build_dir{GetBuildDirPath(build_json)};
+  fs::create_directory(build_dir);
 
   std::ofstream file_stream{fmt::format("{}/build.ninja", build_dir)};
   file_stream << "cxx = " << compiler << '\n';
@@ -172,25 +292,21 @@ auto WriteNinjaFile(ModuleInfoMap const& module_info_map,
   } else if (build_json.Contains("so")) {
     file_stream << rule_sharedlib << '\n';
   } else {
-    std::filesystem::remove_all(build_dir);
+    fs::remove_all(build_dir);
     throw std::invalid_argument{
         "Do not know what to generate. Is build.json ok?"};
   }
 
   // doing build rule for each individual source file
-  auto const& sources_map{build_json.GetJson("src").GetMap()};
-  for (auto const& [src_name, src_deps_json] : sources_map) {
-    std::string_view const src_name_sv{src_name};
+  for (auto const& [src_name_sv, deps] : src_deps) {
     auto const cxx_rule{src_name_sv.ends_with("cppm") ? "cxx_module"
                                                       : "cxx_regular"};
     file_stream << "build " << build_dir << MakeOSubstring(src_name_sv)
                 << ".o: " << cxx_rule << ' ' << src_name_sv;
-
-    const auto& deps = src_deps_json.GetArray();
     if (not deps.empty()) {
       file_stream << " | ";
-      for (auto const& j : deps) {
-        file_stream << build_dir << MakeOSubstring(j.GetStringView()) << ".o ";
+      for (auto const& d : deps) {
+        file_stream << build_dir << MakeOSubstring(d) << ".o ";
       }
     }
 
@@ -209,8 +325,8 @@ auto WriteNinjaFile(ModuleInfoMap const& module_info_map,
                 << ".so: sharedlib ";
   }
   // append all compiled object files (*.o) to this build rule
-  for (auto const& src_name : sources_map | std::views::keys) {
-    file_stream << build_dir << MakeOSubstring(src_name) << ".o ";
+  for (auto const& src_name_sv : src_deps | std::views::keys) {
+    file_stream << build_dir << MakeOSubstring(src_name_sv) << ".o ";
   }
   file_stream << '\n';
 }
@@ -236,8 +352,9 @@ auto main() -> int {
         .lib_name = "",
         .deps = {}}}};
 
-  auto const build_json{
-      uzleo::json::Parse(std::filesystem::path{"build.json"})};
+  auto const build_json{uzleo::json::Parse(fs::path{"build.json"})};
 
-  WriteNinjaFile(module_info_map, build_json);
+  WriteNinjaFile(module_info_map, build_json,
+                 ResolveDeps(module_info_map, build_json),
+                 DetermineSrcDeps(build_json));
 }
