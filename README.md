@@ -17,17 +17,15 @@ native executable.
 ## format for build.json
 
 
-The `build.json` file now allows **explicit per-source dependency specification** for fine-grained control of module builds.
+The `build.json` file lists the sources that make up a module project.
+`modi` figures out the dependencies between these sources by inspecting their
+`import` statements, so specifying them manually is no longer required.
 
 ```
 {
   "b": "build_dir",    // [optional] build output folder (default: "build/")
 
-  "src": {
-    "bar.cppm": [],                // module interface, no dependencies
-    "baz.cppm": [],                // another module interface, no dependencies
-    "main.cpp": ["bar.cppm", "baz.cppm"]   // main.cpp depends on bar.cppm and baz.cppm
-  },
+  "src": ["bar.cppm", "baz.cppm", "main.cpp"], // list of source files need to build project
 
   "l": ["sodium"],      // [optional] system-libs to link against
 
