@@ -158,10 +158,18 @@ auto MakeOSubstring(std::string_view src_name_sv) -> std::string {
     return ExtractModuleName(src_name_sv);
   }
 
-  auto const start{src_name_sv.contains('/') ? src_name_sv.find_last_of('/')
-                                             : 0};
-  auto const count{src_name_sv.find_last_of('.') - start};
-  return std::string{src_name_sv.substr(start, count)};
+  // Keep the relative directory structure to avoid name collisions. Replace
+  // directory separators with underscores so the result can be used directly
+  // as a file name under the build directory.
+  fs::path p{src_name_sv};
+  p.replace_extension("");
+  std::string sanitized{p.string()};
+  std::replace(sanitized.begin(), sanitized.end(), '/', '_');
+  // "./foo.cpp" and "foo.cpp" should map to the same object file name.
+  if (sanitized.starts_with("./")) {
+    sanitized.erase(0, 2);
+  }
+  return sanitized;
 }
 
 using SrcDepsMap =
