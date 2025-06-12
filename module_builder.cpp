@@ -164,7 +164,7 @@ auto MakeOSubstring(std::string_view src_name_sv) -> std::string {
   fs::path p{src_name_sv};
   p.replace_extension("");
   std::string sanitized{p.string()};
-  std::replace(sanitized.begin(), sanitized.end(), '/', '_');
+  rng::replace(sanitized, '/', '_');
   // "./foo.cpp" and "foo.cpp" should map to the same object file name.
   if (sanitized.starts_with("./")) {
     sanitized.erase(0, 2);
