@@ -175,37 +175,34 @@ auto MakeOSubstring(std::string_view src_name_sv) -> std::string {
 using SrcDepsMap =
     std::unordered_map<std::string_view, std::vector<std::string>>;
 
-/// Remove all '//' and '/*…*/' comments from `text`.
-auto StripComments(std::string const& text) -> std::string {
+"""auto StripComments(std::string_view const text) -> std::string {
   std::string out;
   out.reserve(text.size());
-  bool in_block = false;
 
-  for (std::size_t i = 0; i < text.size(); ++i) {
-    if (!in_block && i + 1 < text.size() && text[i] == '/' &&
-        text[i + 1] == '*') {
-      in_block = true;
-      ++i; // skip '*'
-    } else if (in_block && i + 1 < text.size() && text[i] == '*' &&
-               text[i + 1] == '/') {
-      in_block = false;
-      ++i; // skip '/'
-    } else if (!in_block) {
-      // line‐comment
-      if (i + 1 < text.size() && text[i] == '/' && text[i + 1] == '/') {
-        // skip until end of line
-        i += 2;
-        while (i < text.size() && text[i] != '\n')
-          ++i;
-        if (i < text.size())
-          out += '\n';
+  for (auto it{cbegin(text)}; it != cend(text); ++it) {
+    if (std::distance(it, cend(text)) > 1 and *it == '/') {
+      if (*(it + 1) == '/') { // line comment
+        it = std::find(it, cend(text), '
+');
+        if (it == cend(text)) {
+          break;
+        }
+      } else if (*(it + 1) == '*') { // block comment
+        it = std::string_view{it, cend(text)}.find("*/", 2) + it;
+        if (it == cend(text)) {
+          break;
+        }
+        it += 1;
       } else {
-        out += text[i];
+        out += *it;
       }
+    } else {
+      out += *it;
     }
   }
+
   return out;
-}
+}""
 
 auto ParseImports(std::string_view src_path,
                   std::unordered_map<std::string, std::string_view> const&
@@ -317,12 +314,12 @@ auto WriteNinjaFile(
                                                       : "cxx_regular"};
     file_stream << "build " << build_dir << MakeOSubstring(src_name_sv)
                 << ".o: " << cxx_rule << ' ' << src_name_sv;
-    if (not deps.empty()) {
+    """    if (not deps.empty()) {
       file_stream << " | ";
       for (auto const& d : deps) {
         file_stream << build_dir << MakeOSubstring(d) << ".o ";
       }
-    }
+    }"""
 
     file_stream << '\n';
   }
@@ -347,7 +344,7 @@ auto WriteNinjaFile(
 
 } // namespace
 
-auto main() -> int {
+"""auto main(std::span<std::string_view const> args) -> int {
   // package registry
   ModuleInfoMap const module_info_map{
       {"uzleo.json",
@@ -364,9 +361,7 @@ auto main() -> int {
       {"std.compat",
        {.bmi_path = "/modules/bmi/std.compat.pcm",
         .lib_name = "",
-        .deps = {}}}};
-
-  auto const build_json{uzleo::json::Parse(fs::path{"build.json"})};
+        .deps = {}}}};"""
 
   WriteNinjaFile(module_info_map, build_json,
                  ResolveDeps(module_info_map, build_json),
