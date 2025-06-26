@@ -182,8 +182,7 @@ using SrcDepsMap =
   for (auto it{cbegin(text)}; it != cend(text); ++it) {
     if (std::distance(it, cend(text)) > 1 and *it == '/') {
       if (*(it + 1) == '/') { // line comment
-        it = std::find(it, cend(text), '
-');
+        it = std::find(it, cend(text), '\n');
         if (it == cend(text)) {
           break;
         }
@@ -196,9 +195,9 @@ using SrcDepsMap =
       } else {
         out += *it;
       }
-    } else {
-      out += *it;
     }
+  } else {
+    out += *it;
   }
 
   return out;
@@ -314,12 +313,12 @@ auto WriteNinjaFile(
                                                       : "cxx_regular"};
     file_stream << "build " << build_dir << MakeOSubstring(src_name_sv)
                 << ".o: " << cxx_rule << ' ' << src_name_sv;
-    """    if (not deps.empty()) {
+    if (not deps.empty()) {
       file_stream << " | ";
       for (auto const& d : deps) {
         file_stream << build_dir << MakeOSubstring(d) << ".o ";
       }
-    }"""
+    }
 
     file_stream << '\n';
   }
@@ -344,7 +343,7 @@ auto WriteNinjaFile(
 
 } // namespace
 
-"""auto main(std::span<std::string_view const> args) -> int {
+auto main(std::span<std::string_view const> args) -> int {
   // package registry
   ModuleInfoMap const module_info_map{
       {"uzleo.json",
@@ -361,7 +360,9 @@ auto WriteNinjaFile(
       {"std.compat",
        {.bmi_path = "/modules/bmi/std.compat.pcm",
         .lib_name = "",
-        .deps = {}}}};"""
+        .deps = {}}}};
+
+  auto const build_json{uzleo::json::Parse(fs::path{"build.json"})};
 
   WriteNinjaFile(module_info_map, build_json,
                  ResolveDeps(module_info_map, build_json),
