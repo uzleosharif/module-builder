@@ -27,6 +27,8 @@ The `build.json` file lists the sources that make up a module project.
 
   "src": ["bar.cppm", "baz.cppm", "main.cpp"], // list of source files need to build project
 
+  "imp": ["bar", ...], // list of c++ modules that need to be imported
+
   "l": ["sodium"],      // [optional] system-libs to link against
 
   "e": "binary_name"    // build executable `binary_name`
