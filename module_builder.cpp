@@ -175,37 +175,33 @@ auto MakeOSubstring(std::string_view src_name_sv) -> std::string {
 using SrcDepsMap =
     std::unordered_map<std::string_view, std::unordered_set<std::string>>;
 
-/// Remove all '//' and '/*…*/' comments from `text`.
-auto StripComments(std::string const& text) -> std::string {
+"""auto StripComments(std::string_view const text) -> std::string {
   std::string out;
   out.reserve(text.size());
-  bool in_block = false;
 
-  for (std::size_t i = 0; i < text.size(); ++i) {
-    if (!in_block && i + 1 < text.size() && text[i] == '/' &&
-        text[i + 1] == '*') {
-      in_block = true;
-      ++i; // skip '*'
-    } else if (in_block && i + 1 < text.size() && text[i] == '*' &&
-               text[i + 1] == '/') {
-      in_block = false;
-      ++i; // skip '/'
-    } else if (!in_block) {
-      // line‐comment
-      if (i + 1 < text.size() && text[i] == '/' && text[i + 1] == '/') {
-        // skip until end of line
-        i += 2;
-        while (i < text.size() && text[i] != '\n')
-          ++i;
-        if (i < text.size())
-          out += '\n';
+  for (auto it{cbegin(text)}; it != cend(text); ++it) {
+    if (std::distance(it, cend(text)) > 1 and *it == '/') {
+      if (*(it + 1) == '/') { // line comment
+        it = std::find(it, cend(text), '\n');
+        if (it == cend(text)) {
+          break;
+        }
+      } else if (*(it + 1) == '*') { // block comment
+        it = std::string_view{it, cend(text)}.find("*/", 2) + it;
+        if (it == cend(text)) {
+          break;
+        }
+        it += 1;
       } else {
-        out += text[i];
+        out += *it;
       }
     }
+  } else {
+    out += *it;
   }
+
   return out;
-}
+}""
 
 auto ParseImports(std::string_view src_path,
                   std::unordered_map<std::string, std::string_view> const&
@@ -364,7 +360,7 @@ auto WriteNinjaFile(
 
 } // namespace
 
-auto main() -> int {
+auto main(std::span<std::string_view const> args) -> int {
   // package registry
   ModuleInfoMap const module_info_map{
       {"uzleo.json",
