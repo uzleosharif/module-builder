@@ -173,7 +173,7 @@ auto MakeOSubstring(std::string_view src_name_sv) -> std::string {
 }
 
 using SrcDepsMap =
-    std::unordered_map<std::string_view, std::vector<std::string>>;
+    std::unordered_map<std::string_view, std::unordered_set<std::string>>;
 
 /// Remove all '//' and '/*…*/' comments from `text`.
 auto StripComments(std::string const& text) -> std::string {
@@ -209,10 +209,13 @@ auto StripComments(std::string const& text) -> std::string {
 
 auto ParseImports(std::string_view src_path,
                   std::unordered_map<std::string, std::string_view> const&
-                      module_to_source_path_map) -> std::vector<std::string> {
+                      module_to_source_path_map)
+    -> std::unordered_set<std::string> {
   static std::regex const import_re{R"(\bimport\s+([a-zA-Z0-9_.:]+))"};
+  static std::regex const module_decl_re{
+      R"(^\s*(?:export\s+)?module\s+([a-zA-Z0-9_.:]+))"};
 
-  static std::unordered_map<std::string_view, std::vector<std::string>>
+  static std::unordered_map<std::string_view, std::unordered_set<std::string>>
       source_path_to_deps_cache{};
   if (source_path_to_deps_cache.contains(src_path)) {
     return source_path_to_deps_cache[src_path];
@@ -241,7 +244,21 @@ auto ParseImports(std::string_view src_path,
           [&module_to_source_path_map](std::string const& mod_name) {
             return module_to_source_path_map.at(mod_name);
           }) |
-      rng::to<std::vector<std::string>>();
+      rng::to<std::unordered_set<std::string>>();
+
+  // If this is a module implementation unit, make it depend on its interface
+  std::smatch module_match{};
+  if (std::regex_search(cleaned_file_contents, module_match, module_decl_re)) {
+    auto const module_interface_unit_name{module_match[1].str()};
+    if (rng::contains(module_to_source_path_map |
+                          std::views::filter([src_path](auto const& kvp) {
+                            return kvp.second != src_path;
+                          }) |
+                          std::views::keys,
+                      module_interface_unit_name)) {
+      deps.emplace(module_to_source_path_map.at(module_interface_unit_name));
+    }
+  }
 
   source_path_to_deps_cache.emplace(src_path, std::move(deps));
   return source_path_to_deps_cache[src_path];
