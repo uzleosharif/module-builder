@@ -10,7 +10,9 @@ namespace rng = std::ranges;
 namespace fs = std::filesystem;
 
 std::string_view constexpr compiler{"clang++"};
-std::string_view constexpr cxx_flags{"-std=c++26 -stdlib=libc++ -O3"};
+std::string_view constexpr cxx_flags{"-std=c++26 -stdlib=libc++"};
+std::string_view constexpr debug_flags{"-O0 -g"};
+std::string_view constexpr release_flags{"-O3"};
 std::array<std::string_view, 2> constexpr kLibSearchPaths{
     "/modules/lib/", "/modules/lib/uzleo/"};
 std::string_view constexpr rule_cxx_module{R"(
@@ -54,6 +56,24 @@ auto GetBuildDirPath(uzleo::json::Json const& build_json) {
           ? build_json.GetJson("b").GetStringView() | rng::to<std::string>()
           : "build/";
   return build_dir;
+}
+
+auto GetBuildModeFlags(uzleo::json::Json const& build_json)
+    -> std::string_view {
+  if (not build_json.Contains("mode")) {
+    return release_flags;
+  }
+
+  auto const mode{build_json.GetJson("mode").GetStringView()};
+  if (mode == "debug") {
+    return debug_flags;
+  }
+  if (mode == "release") {
+    return release_flags;
+  }
+
+  throw std::invalid_argument{fmt::format(
+      "Unknown build mode '{}'. Expected 'debug' or 'release'.", mode)};
 }
 
 auto ResolveDeps(ModuleInfoMap const& module_info_map,
@@ -299,7 +319,8 @@ auto WriteNinjaFile(
   std::ofstream file_stream{fmt::format("{}/build.ninja", build_dir)};
   file_stream << "cxx = " << compiler << '\n';
 
-  file_stream << "cxx_flags = " << cxx_flags << ' ';
+  file_stream << "cxx_flags = " << cxx_flags << ' '
+              << GetBuildModeFlags(build_json) << ' ';
   if (build_json.Contains("e")) {
     file_stream << "-fsanitize=address ";
   }
